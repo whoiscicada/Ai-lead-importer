@@ -1,27 +1,27 @@
 # GrowEasy AI-Powered CSV Importer
 
 Upload any CRM lead CSV — regardless of column names or layout — preview it, confirm the
-import, and let Claude map every row onto the GrowEasy CRM schema. Imported and skipped
+import, and let AI map every row onto the GrowEasy CRM schema. Imported and skipped
 records are shown with reasons for anything that couldn't be mapped.
 
 ## Architecture
 
 ```
-apps/web (Next.js, App Router)  --->  apps/server (Express + TypeScript)  --->  Claude (Anthropic API)
+apps/web (Next.js, App Router)  --->  apps/server (Express + TypeScript)  --->  AI provider
      CSV preview (papaparse)              CSV parsing (csv-parse)              AIProvider interface
-     multipart upload                     batching + retry/backoff            ClaudeProvider impl
+     multipart upload                     batching + retry/backoff            provider impl
      results UI                           zod validation
 ```
 
 - **Frontend** (`apps/web`): drag-and-drop upload, client-side preview via `papaparse`, then hands the
   raw file to the backend — the backend is the source of truth for parsing.
-- **Backend** (`apps/server`): parses the CSV, splits rows into batches, sends each batch to Claude
+- **Backend** (`apps/server`): parses the CSV, splits rows into batches, sends each batch to the AI
   behind an `AIProvider` interface (so swapping providers is a one-file change), validates/repairs
   the AI's output, and assembles the final `ImportResult`.
-- **AI provider**: `ClaudeProvider` calls `claude-sonnet-4-6` with a system prompt that encodes every
-  mapping rule (enum values, date normalization, multi-email/phone handling, newline safety, row
-  exclusion criteria). Responses are parsed defensively (strip code fences, `JSON.parse`, validate
-  with `zod`), with one retry using a stricter prompt if parsing fails.
+- **AI provider**: sends a system prompt that encodes every mapping rule (enum values, date
+  normalization, multi-email/phone handling, newline safety, row exclusion criteria). Responses are
+  parsed defensively (strip code fences, `JSON.parse`, validate with `zod`), with one retry using a
+  stricter prompt if parsing fails.
 
 ## Project structure
 
@@ -48,8 +48,7 @@ BATCH_SIZE=10
 MAX_FILE_SIZE_MB=5
 AI_CONCURRENCY=1
 
-# This deployment runs AI extraction through OpenRouter (Claude Haiku) instead of
-# a direct Anthropic key:
+# This deployment runs AI extraction through OpenRouter instead of a direct key:
 AI_TRANSPORT=openrouter
 OPENROUTER_API_KEY=sk-or-xxxx
 OPENROUTER_MODEL=anthropic/claude-haiku-4.5
@@ -77,7 +76,7 @@ Open http://localhost:3000.
 ### Tests
 
 ```bash
-npm run test:server  # vitest — validator + AI extractor logic (Anthropic client mocked)
+npm run test:server  # vitest — validator + AI extractor logic (AI client mocked)
 ```
 
 ## How the AI mapping works
@@ -85,7 +84,7 @@ npm run test:server  # vitest — validator + AI extractor logic (Anthropic clie
 1. The backend parses the CSV with `csv-parse`, preserving original headers as-is.
 2. Rows are chunked into batches (`BATCH_SIZE`) and sent to the model with limited
    concurrency (`AI_CONCURRENCY`) to stay under rate limits.
-3. Each batch's prompt instructs Claude to map arbitrary column names to the fixed CRM schema,
+3. Each batch's prompt instructs the AI to map arbitrary column names to the fixed CRM schema,
    normalize dates to ISO 8601, split multiple emails/phones (first one wins, rest go to
    `crm_note`), and omit rows with neither an email nor a phone number.
 4. On a parse failure, the batch is retried once with a stricter "no prose" reminder; on
@@ -98,11 +97,10 @@ npm run test:server  # vitest — validator + AI extractor logic (Anthropic clie
 6. Rows the model silently dropped (had contact info but weren't returned) are reported as
    `"AI omitted row"` rather than silently disappearing.
 
-The model call sits behind an `AIProvider` interface (`apps/server/src/providers/AIProvider.ts`).
-`ClaudeProvider` implements it four ways, selected by `AI_TRANSPORT`: a direct call to
-`@anthropic-ai/sdk` (`claude-sonnet-4-6`, the assignment-spec default), or a plain `fetch` to
-OpenRouter / Groq (both OpenAI-compatible `/chat/completions`) / Gemini's `generateContent`
-endpoint. This deployment runs on OpenRouter with `anthropic/claude-haiku-4.5`.
+The model call sits behind an `AIProvider` interface (`apps/server/src/providers/AIProvider.ts`)
+implemented four ways, selected by `AI_TRANSPORT`: a direct call to the Anthropic SDK (assignment-spec
+default), or a plain `fetch` to OpenRouter / Groq (both OpenAI-compatible `/chat/completions`) /
+Gemini's `generateContent` endpoint. This deployment runs on OpenRouter.
 
 ## API reference
 
