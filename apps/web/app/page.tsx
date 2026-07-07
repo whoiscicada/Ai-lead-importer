@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CsvDropzone } from "@/components/CsvDropzone";
 import { CsvPreviewTable } from "@/components/CsvPreviewTable";
 import { ImportSummary } from "@/components/ImportSummary";
@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { parseCsvPreview, ParsedCsv, downloadImportedCsv, downloadSkippedCsv } from "@/lib/csv";
-import { importCsvFile } from "@/lib/api";
-import { ImportResult } from "@/types/crm";
+import { importCsvFileStreaming } from "@/lib/api";
+import { CrmRecord, ImportResult, SkippedRow } from "@/types/crm";
 
 type Stage = "upload" | "preview" | "importing" | "results";
 
@@ -22,6 +22,10 @@ export default function Home() {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [progressMessage, setProgressMessage] = useState<string>("Starting import…");
+  const importedSoFar = useRef<CrmRecord[]>([]);
+  const skippedSoFar = useRef<SkippedRow[]>([]);
+  const closeStreamRef = useRef<(() => void) | null>(null);
 
   async function handleFileSelected(selected: File) {
     setFile(selected);
@@ -39,17 +43,36 @@ export default function Home() {
     if (!file) return;
     setStage("importing");
     setError(null);
-    try {
-      const importResult = await importCsvFile(file);
-      setResult(importResult);
-      setStage("results");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Import failed. Please try again.");
-      setStage("preview");
-    }
+    setProgressMessage("Starting import…");
+    importedSoFar.current = [];
+    skippedSoFar.current = [];
+
+    const closeStream = await importCsvFileStreaming(file, {
+      onProgress: (message) => setProgressMessage(message),
+      onBatch: (batchIndex, totalBatches, imported, skipped) => {
+        importedSoFar.current = [...importedSoFar.current, ...imported];
+        skippedSoFar.current = [...skippedSoFar.current, ...skipped];
+        setProgressMessage(`Processed batch ${batchIndex}/${totalBatches} — ${importedSoFar.current.length} imported so far`);
+      },
+      onDone: (totalImported, totalSkipped) => {
+        setResult({
+          imported: importedSoFar.current,
+          skipped: skippedSoFar.current,
+          totalImported,
+          totalSkipped,
+        });
+        setStage("results");
+      },
+      onError: (message) => {
+        setError(message);
+        setStage("preview");
+      },
+    });
+    closeStreamRef.current = closeStream;
   }
 
   function handleReset() {
+    closeStreamRef.current?.();
     setStage("upload");
     setFile(null);
     setPreview(null);
@@ -100,7 +123,7 @@ export default function Home() {
       {stage === "importing" && (
         <div className="flex flex-col items-center gap-3 py-16 text-zinc-600 dark:text-zinc-300">
           <Spinner className="h-8 w-8" />
-          <p className="text-sm">AI is mapping your CSV to the CRM schema…</p>
+          <p className="text-sm">{progressMessage}</p>
         </div>
       )}
 
