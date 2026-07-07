@@ -59,7 +59,7 @@ export class ClaudeProvider implements AIProvider {
   private defaultModel(): string {
     if (this.transport === "openrouter") return "anthropic/claude-haiku-4.5";
     if (this.transport === "gemini") return "gemini-2.5-flash";
-    if (this.transport === "groq") return "llama-3.3-70b-versatile";
+    if (this.transport === "groq") return "openai/gpt-oss-120b";
     return ANTHROPIC_MODEL;
   }
 
