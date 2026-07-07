@@ -1,4 +1,4 @@
-#AI-Powered CSV Importer
+# GrowEasy AI-Powered CSV Importer
 
 Upload any CRM lead CSV — regardless of column names or layout — preview it, confirm the
 import, and let Claude map every row onto the GrowEasy CRM schema. Imported and skipped
@@ -44,14 +44,16 @@ npm install          # installs both workspaces from the repo root
 ```
 PORT=8080
 CORS_ORIGIN=http://localhost:3000
-BATCH_SIZE=25
+BATCH_SIZE=10
 MAX_FILE_SIZE_MB=5
+AI_CONCURRENCY=1
 
 # This deployment runs AI extraction through OpenRouter (Claude Haiku) instead of
 # a direct Anthropic key:
 AI_TRANSPORT=openrouter
 OPENROUTER_API_KEY=sk-or-xxxx
 OPENROUTER_MODEL=anthropic/claude-haiku-4.5
+OPENROUTER_MAX_TOKENS=2500
 
 # Only needed if AI_TRANSPORT=anthropic (the assignment-spec default)
 ANTHROPIC_API_KEY=
@@ -81,8 +83,8 @@ npm run test:server  # vitest — validator + AI extractor logic (Anthropic clie
 ## How the AI mapping works
 
 1. The backend parses the CSV with `csv-parse`, preserving original headers as-is.
-2. Rows are chunked into batches (`BATCH_SIZE`, default 25) and sent to Claude with limited
-   concurrency (`p-limit(3)`) to stay under rate limits.
+2. Rows are chunked into batches (`BATCH_SIZE`) and sent to the model with limited
+   concurrency (`AI_CONCURRENCY`) to stay under rate limits.
 3. Each batch's prompt instructs Claude to map arbitrary column names to the fixed CRM schema,
    normalize dates to ISO 8601, split multiple emails/phones (first one wins, rest go to
    `crm_note`), and omit rows with neither an email nor a phone number.
@@ -97,9 +99,10 @@ npm run test:server  # vitest — validator + AI extractor logic (Anthropic clie
    `"AI omitted row"` rather than silently disappearing.
 
 The model call sits behind an `AIProvider` interface (`apps/server/src/providers/AIProvider.ts`).
-`ClaudeProvider` implements it two ways, selected by `AI_TRANSPORT`: a direct call to
-`@anthropic-ai/sdk` (`claude-sonnet-4-6`), or a plain `fetch` to OpenRouter's OpenAI-compatible
-`/chat/completions` endpoint (`anthropic/claude-haiku-4.5`) — this deployment uses the latter.
+`ClaudeProvider` implements it four ways, selected by `AI_TRANSPORT`: a direct call to
+`@anthropic-ai/sdk` (`claude-sonnet-4-6`, the assignment-spec default), or a plain `fetch` to
+OpenRouter / Groq (both OpenAI-compatible `/chat/completions`) / Gemini's `generateContent`
+endpoint. This deployment runs on OpenRouter with `anthropic/claude-haiku-4.5`.
 
 ## API reference
 
@@ -124,8 +127,8 @@ The model call sits behind an `AIProvider` interface (`apps/server/src/providers
 
 ## Deployed URLs
 
-- Frontend: _fill in after deploying to Vercel_
-- Backend: _fill in after deploying to Railway/Render_
+- Frontend: https://ai-lead-importer-web.vercel.app
+- Backend: https://groweasyserver-production-8e12.up.railway.app
 
 ## Known limitations / edge cases handled
 
@@ -140,13 +143,17 @@ The model call sits behind an `AIProvider` interface (`apps/server/src/providers
 
 ## Deployment
 
-1. Push this repo to a public GitHub repository.
-2. **Backend** → Railway or Render: new service from repo, root directory `apps/server`,
-   build command `npm run build`, start command `npm start`, set env vars from above
-   (`AI_TRANSPORT=openrouter` + `OPENROUTER_API_KEY` + `OPENROUTER_MODEL`).
-3. **Frontend** → Vercel: import repo, root directory `apps/web`, set
-   `NEXT_PUBLIC_API_BASE_URL` to the deployed backend URL.
-4. Set the backend's `CORS_ORIGIN` to match the deployed frontend origin exactly.
+Deployed as two separate services on Railway (backend) and Vercel (frontend):
+
+1. **Backend** (Railway): new service from the GitHub repo, root directory `apps/server`,
+   build command `npm run build --workspace=@groweasy/server`, start command
+   `npm run start --workspace=@groweasy/server`, env vars set from the list above
+   (`AI_TRANSPORT=openrouter` + `OPENROUTER_API_KEY` + `OPENROUTER_MODEL` +
+   `OPENROUTER_MAX_TOKENS`), public domain generated under Settings → Networking.
+2. **Frontend** (Vercel): import the repo, root directory `apps/web`,
+   `NEXT_PUBLIC_API_BASE_URL` set to the Railway backend's public URL (must include
+   `https://`, no trailing slash — this is a build-time value, redeploy after changing it).
+3. Backend's `CORS_ORIGIN` set to the exact Vercel frontend URL (no trailing slash).
 
 ## Docker (optional)
 
@@ -154,4 +161,4 @@ The model call sits behind an `AIProvider` interface (`apps/server/src/providers
 docker compose up --build
 ```
 
-Requires `apps/server/.env` to exist with a valid `ANTHROPIC_API_KEY`.
+Requires `apps/server/.env` to exist with valid credentials for whichever `AI_TRANSPORT` is set.
