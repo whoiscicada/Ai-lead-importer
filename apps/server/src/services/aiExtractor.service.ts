@@ -78,21 +78,36 @@ async function extractBatchWithRetry(
   };
 }
 
+export interface BatchCompletion {
+  batchIndex: number;
+  totalBatches: number;
+  records: CrmRecord[];
+  skipped: SkippedRow[];
+}
+
 export async function extractAllBatches(
   provider: AIProvider,
   rows: Record<string, unknown>[],
   batchSize: number,
   onProgress?: (message: string) => void,
-  concurrency = 3
+  concurrency = 3,
+  onBatchComplete?: (completion: BatchCompletion) => void
 ): Promise<{ imported: CrmRecord[]; skipped: SkippedRow[] }> {
   const batches = batchRows(rows, batchSize);
   const limit = pLimit(concurrency);
 
   const results = await Promise.all(
     batches.map((batch, index) =>
-      limit(() => {
+      limit(async () => {
         onProgress?.(`Processing batch ${index + 1}/${batches.length}`);
-        return extractBatchWithRetry(provider, batch, onProgress);
+        const result = await extractBatchWithRetry(provider, batch, onProgress);
+        onBatchComplete?.({
+          batchIndex: index + 1,
+          totalBatches: batches.length,
+          records: result.records,
+          skipped: result.skipped,
+        });
+        return result;
       })
     )
   );

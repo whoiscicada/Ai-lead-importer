@@ -123,6 +123,26 @@ Gemini's `generateContent` endpoint. This deployment runs on OpenRouter.
   - `422` — no valid rows could be imported
   - `500` — upstream AI failure or missing server configuration
 
+This is the simple, all-at-once path (used for curl/API testing). The web UI uses the
+streaming variant below instead, for live progress and incremental results.
+
+### `POST /api/import/jobs` + `GET /api/import/jobs/:jobId/stream`
+
+Same upload contract as `/api/import`, but returns immediately and streams progress over SSE
+instead of blocking until the whole file is processed.
+
+- `POST /api/import/jobs` — `multipart/form-data`, field `file`. Responds `202 Accepted` with
+  `{ "jobId": "..." }` right away; validation errors (`400`/`422`) still return synchronously.
+- `GET /api/import/jobs/:jobId/stream` — Server-Sent Events. Each `data:` line is one JSON event:
+  - `{"type":"progress","message":"Processing batch 2/8"}`
+  - `{"type":"batch","batchIndex":2,"totalBatches":8,"imported":[...],"skipped":[...]}` — one
+    per completed batch, so the frontend can render rows as they arrive instead of waiting for
+    the entire CSV
+  - `{"type":"done","totalImported":42,"totalSkipped":3}` — stream ends
+  - `{"type":"error","message":"...","status":422}` — stream ends
+  Jobs and their buffered events live in memory only (per the stateless-by-default design) and
+  are cleaned up 5 minutes after creation.
+
 ## Deployed URLs
 
 - Frontend: https://ai-lead-importer-web.vercel.app

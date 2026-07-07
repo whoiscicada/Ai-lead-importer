@@ -1,28 +1,10 @@
 import { Request, Response } from "express";
 import { parseCsv } from "../services/csvParser.service";
 import { extractAllBatches, hasContactInfo } from "../services/aiExtractor.service";
-import { ClaudeProvider } from "../providers/ClaudeProvider";
+import { resolveProviderConfig, buildProvider } from "../providers/resolveProvider";
 import { HttpError } from "../middleware/error.middleware";
 import { env } from "../config/env";
 import { ImportResult } from "../types/crm";
-
-function resolveProviderConfig(): {
-  apiKey: string;
-  missingVar: string;
-  model?: string;
-  maxTokens?: number;
-} {
-  if (env.aiTransport === "openrouter") {
-    return { apiKey: env.openrouterApiKey, missingVar: "OPENROUTER_API_KEY", model: env.openrouterModel, maxTokens: env.openrouterMaxTokens };
-  }
-  if (env.aiTransport === "gemini") {
-    return { apiKey: env.geminiApiKey, missingVar: "GEMINI_API_KEY", model: env.geminiModel, maxTokens: env.geminiMaxTokens };
-  }
-  if (env.aiTransport === "groq") {
-    return { apiKey: env.groqApiKey, missingVar: "GROQ_API_KEY", model: env.groqModel, maxTokens: env.groqMaxTokens };
-  }
-  return { apiKey: env.anthropicApiKey, missingVar: "ANTHROPIC_API_KEY" };
-}
 
 export async function importCsv(req: Request, res: Response): Promise<void> {
   if (!req.file) {
@@ -40,11 +22,7 @@ export async function importCsv(req: Request, res: Response): Promise<void> {
     throw new HttpError(422, "No column in this CSV looks like an email or phone/mobile number — nothing to import");
   }
 
-  const provider = new ClaudeProvider(providerConfig.apiKey, {
-    transport: env.aiTransport,
-    model: providerConfig.model,
-    maxTokens: providerConfig.maxTokens,
-  });
+  const provider = buildProvider();
 
   let imported: ImportResult["imported"] = [];
   let skipped: ImportResult["skipped"] = [];
