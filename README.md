@@ -1,4 +1,4 @@
-# GrowEasy AI-Powered CSV Importer
+#AI-Powered CSV Importer
 
 Upload any CRM lead CSV — regardless of column names or layout — preview it, confirm the
 import, and let Claude map every row onto the GrowEasy CRM schema. Imported and skipped
